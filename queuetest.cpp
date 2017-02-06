@@ -1,55 +1,75 @@
 /***********************************************************
 //
 ************************************************************/
-
-#include <iostream>
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
-#include <pthread.h>
-#include <string.h>
-#include <unistd.h>
-#include <ftw.h>
+#include "queuetest.h"
 
 using namespace std;
 
-#define MAXQUEUESIZE  10
-
-pthread_mutex_t 	g_mutex_queue_cs;		 
-pthread_cond_t		queue_cv;
-pthread_mutexattr_t g_MutexAttr;
-
-
-typedef struct 
+MutexLock:: MutexLock()
 {
-	int Id;
-	char desInfo[100];
-}QueueNode;
+	mutexinit();
+}
+MutexLock::~MutexLock()
+{	
+	mutexDestory();
+}
 
-class QueueInfo
+void MutexLock::mutexinit()
 {
-public:
-	QueueInfo()
-	{
-		QueueNode Queuelist[MAXQUEUESIZE] = {0};
-		queueHead = 0;
-		queueTail = 0;
-	}
-	
-	void PushDataIntoQueue();
-	void GetDataFromQueue();
+	pthread_mutex_init(&m_Mutex,NULL);
+}
 
-private:
-	
-	int EnQueue(QueueNode node);
-	int DeQueue(QueueNode *node);
+void MutexLock::mutexDestory()
+{
+	pthread_mutex_destroy(&m_Mutex);
+}
 
-private:
-	QueueNode Queuelist[MAXQUEUESIZE];
-	int queueHead;
-	int queueTail;
+void MutexLock::lock()
+{
+	pthread_mutex_lock(&m_Mutex);
+}
 
-};
+void MutexLock::unlock()
+{
+	pthread_mutex_unlock(&m_Mutex);
+}
+
+pthread_mutex_t* MutexLock::get_mutexlock()
+{
+
+	return &m_Mutex;
+
+}
+
+Condition::Condition(MutexLock& lock):m_Mutex(lock)
+{
+	pthread_cond_init(&_cond,NULL);
+}
+
+Condition::~Condition()
+{
+	pthread_cond_destroy(&_cond);
+}
+
+void Condition::wait()
+{
+	pthread_cond_wait(&_cond,m_Mutex.get_mutexlock());
+}
+
+void Condition::notify()
+{
+	pthread_cond_signal(&_cond);
+}
+
+void Condition::notifyAll()
+{
+	pthread_cond_broadcast(&_cond);
+}
+
+
+MutexLock Mlock;
+Condition cond(Mlock);
+
 
 void Sleep(int iCountMs)
 {
@@ -68,11 +88,15 @@ void Sleep(int iCountMs)
     }
     select(0, NULL, NULL, NULL, &t_timeout);    // \u8c03\u7528select\u51fd\u6570\u963b\u585e\u7a0b\u5e8f
 }
+
 int QueueInfo::EnQueue(QueueNode  node)
 {
 	int iretval = 0;
 	int iNextPos = 0;
-	pthread_mutex_lock(&g_mutex_queue_cs);
+
+	Mlock.lock();
+
+	//pthread_mutex_lock(&g_mutex_queue_cs);
 	
 	iNextPos = queueTail + 1;
 
@@ -92,8 +116,10 @@ int QueueInfo::EnQueue(QueueNode  node)
 		queueTail = iNextPos;
 	}
 
-    pthread_cond_signal(&queue_cv);
-	pthread_mutex_unlock(&g_mutex_queue_cs);
+	cond.notify();
+	Mlock.unlock();
+	
+	//pthread_mutex_unlock(&g_mutex_queue_cs);
 
 	return iretval;
 }
@@ -132,12 +158,14 @@ int QueueInfo::DeQueue(QueueNode *node)
 		return -1;
 	}
 
-	pthread_mutex_lock(&g_mutex_queue_cs);
+	Mlock.lock();
+	//pthread_mutex_lock(&g_mutex_queue_cs);
 	
 	if(queueHead == queueTail)
 	{
 		cout<<"wait queue insert data"<<endl;
-		pthread_cond_wait(&queue_cv,&g_mutex_queue_cs);
+		cond.wait();
+		//pthread_cond_wait(&queue_cv,&g_mutex_queue_cs);
 	}
 
 	
@@ -151,7 +179,8 @@ int QueueInfo::DeQueue(QueueNode *node)
 		queueHead = 0;
 	}
 
-	pthread_mutex_unlock(&g_mutex_queue_cs);
+	Mlock.unlock();
+	//pthread_mutex_unlock(&g_mutex_queue_cs);
 
 	memcpy(node,&tQueueData,sizeof(QueueNode));
 
@@ -178,9 +207,6 @@ void QueueInfo::GetDataFromQueue()
 int main(int argc,char* argv[])
 {
 	cout<<"*********now operate program************"<<endl;
-
-	pthread_mutex_init(&g_mutex_queue_cs, &g_MutexAttr);
-    pthread_cond_init(&queue_cv, NULL);
 
 	QueueInfo qInfo;
 	
